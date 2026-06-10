@@ -32,7 +32,7 @@ function detectMaterial(text: string): string {
 function parseDims(text: string): Array<{ length: number; width: number; height: number; quantity: number }> {
   const groups: Array<{ length: number; width: number; height: number; quantity: number }> = []
   // Pattern: DIMS: 60.00 * 40.00 * 30.00 * 10 * Cms  (multiple allowed)
-  const re = /DIMS?[:\s]*(\d+(?:\.\d+)?)\s*[*×x]\s*(\d+(?:\.\d+)?)\s*[*×x]\s*(\d+(?:\.\d+)?)\s*[*×x]\s*(\d+(?:\.\d+)?)/gi
+  const re = /DIMS?[:\s]*([\d.]+)\s*[*×x]\s*([\d.]+)\s*[*×x]\s*([\d.]+)\s*[*×x]\s*([\d.]+)/gi
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     groups.push({
@@ -51,7 +51,12 @@ export async function extractAWBFromBuffer(buffer: ArrayBuffer): Promise<AWBExtr
     const page  = await pdf.getPage(1)
     const tc    = await page.getTextContent()
     const items = tc.items as Array<{ str: string; transform: number[] }>
-    const fullText = items.map(i => i.str).join(' ')
+    // Normalize: fix split decimals (e.g. '30 .00' → '30.00') from pdf.js text items
+  const rawJoin    = items.map(i => i.str).join(' ')
+  const fullText   = rawJoin
+    .replace(/(\d+)\s\.\s*(\d+)/g, '$1.$2')
+    .replace(/(\d+)\.\s+(\d+)/g,    '$1.$2')
+    .replace(/(\d+)\s+\.(\d+)/g,    '$1.$2')
 
     // AWB number
     const awbMatch = fullText.match(/312[-_]\d{8}/)
