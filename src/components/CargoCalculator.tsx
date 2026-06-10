@@ -21,6 +21,7 @@ import CalculateIcon from '@mui/icons-material/Calculate'
 import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined'
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import AcUnitIcon from '@mui/icons-material/AcUnit'
 import { calculateFreight, type FreightResult } from '../utils/calculateFreight'
 import { optimizePacking, type PackingOptimization } from '../utils/optimizePacking'
 import { extractAWBFromBuffer } from '../utils/extractAWB'
@@ -30,22 +31,24 @@ import PackingEfficiencyCard from './PackingEfficiencyCard'
 import ResultCards from './ResultCards'
 import SmartPackingOptimizerCard from './SmartPackingOptimizerCard'
 import SuggestOptimalSizeCard from './SuggestOptimalSizeCard'
+import BudgetReverseCalculator from './BudgetReverseCalculator'
 
-const APP_VERSION = 'v1.2.0'
+const APP_VERSION = 'v1.3.0'
 const SHARE_CACHE = 'packing-shared-v1'
 
+const ICE_MATERIALS = ['Fish', 'Perishable Cargo', 'Vegetables', 'Fruits']
 const MATERIALS = [
   'Flowers','Fish','Vegetables','Fruits','Textiles',
   'Electronics','Machinery','General Cargo','Pharmaceuticals','Perishable Cargo','Other',
 ]
 
 type CartonGroupForm = { id: string; length: string; width: string; height: string; quantity: string }
-type FormState = { material: string; actualWeight: string; ratePerKg: string }
+type FormState = { material: string; actualWeight: string; ratePerKg: string; iceWeight: string }
 type CartonGroupErrors = Partial<Record<keyof Omit<CartonGroupForm, 'id'>, string>>
 type FormErrors = { material?: string; actualWeight?: string; ratePerKg?: string; cartonGroups?: Record<string, CartonGroupErrors> }
 
 const createGroup = (): CartonGroupForm => ({ id: crypto.randomUUID(), length:'', width:'', height:'', quantity:'1' })
-const INITIAL_FORM: FormState = { material:'', actualWeight:'', ratePerKg:'' }
+const INITIAL_FORM: FormState = { material:'', actualWeight:'', ratePerKg:'', iceWeight:'' }
 
 function parsePositive(v: string): number | null {
   const n = Number(v)
@@ -121,6 +124,7 @@ export default function CargoCalculator() {
       material:     data.material,
       actualWeight: String(data.actualWeight),
       ratePerKg:    data.ratePerKg > 0 ? String(data.ratePerKg) : '',
+      iceWeight:    '',
     })
     // Auto-fill carton groups from DIMS
     if (data.cartonGroups.length > 0) {
@@ -156,7 +160,7 @@ export default function CargoCalculator() {
   // ── Form helpers ──────────────────────────────────────────────
   const updateField = (f: keyof FormState, v: string) => {
     setForm(prev => ({ ...prev, [f]: v }))
-    if (errors[f]) setErrors(prev => ({ ...prev, [f]: undefined }))
+    if ((errors as Record<string, unknown>)[f]) setErrors(prev => ({ ...prev, [f]: undefined }))
   }
 
   const updateGroup = (id: string, f: keyof Omit<CartonGroupForm,'id'>, v: string) => {
@@ -170,9 +174,11 @@ export default function CargoCalculator() {
     e.preventDefault()
     const errs = validate(form, groups)
     if (hasErrors(errs)) { setErrors(errs); return }
+    const iceKg     = parseFloat(form.iceWeight) || 0
+    const netWeight = Math.max(0, Number(form.actualWeight) - iceKg)
     const vals = {
       material: form.material,
-      actualWeight: Number(form.actualWeight),
+      actualWeight: netWeight,
       ratePerKg: Number(form.ratePerKg),
       cartonGroups: groups.map(g => ({ length:Number(g.length), width:Number(g.width), height:Number(g.height), quantity:Number(g.quantity) })),
     }
@@ -233,11 +239,26 @@ export default function CargoCalculator() {
               </FormControl>
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField fullWidth label="Actual Weight" type="number" value={form.actualWeight}
+              <TextField fullWidth label="Gross Weight (with ice)" type="number" value={form.actualWeight}
                 onChange={e => updateField('actualWeight', e.target.value)}
                 error={!!errors.actualWeight} helperText={errors.actualWeight}
                 slotProps={{ htmlInput:{ min:0, step:'any' }, input:{ endAdornment:<InputAdornment position="end">kg</InputAdornment> } }} />
             </Grid>
+            {ICE_MATERIALS.includes(form.material) && (
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField fullWidth label="Ice / Tare Weight (optional)" type="number"
+                  value={form.iceWeight} onChange={e => updateField('iceWeight', e.target.value)}
+                  slotProps={{ htmlInput:{ min:0, step:'any' }, input:{
+                    startAdornment:<InputAdornment position="start"><AcUnitIcon fontSize="small" sx={{color:'#00c6ff'}} /></InputAdornment>,
+                    endAdornment:<InputAdornment position="end">kg</InputAdornment>
+                  }}}
+                  helperText={
+                    form.iceWeight && Number(form.iceWeight) > 0
+                      ? `Net cargo weight: ${Math.max(0, (Number(form.actualWeight)||0) - Number(form.iceWeight)).toFixed(2)} kg`
+                      : 'Fish/Perishable — ice weight enter karo for accurate calculation'
+                  } />
+              </Grid>
+            )}
             <Grid size={{ xs: 12, sm: 6 }}>
               <TextField fullWidth label="Rate Per Kg" type="number" value={form.ratePerKg}
                 onChange={e => updateField('ratePerKg', e.target.value)}
@@ -308,6 +329,7 @@ export default function CargoCalculator() {
           <ResultCards results={results} />
           <Divider sx={{ my:3 }} />
           <SuggestOptimalSizeCard ratePerKg={Number(form.ratePerKg)} />
+          <BudgetReverseCalculator ratePerKg={Number(form.ratePerKg)} />
         </Box>
       )}
     </Box>
